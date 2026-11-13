@@ -48,6 +48,60 @@ ascii_punctuation_re = re.compile("[\u0009-\u000D\u0020-\u002F\u003A-\u0040\u005
 charsUntilRegEx = {}
 
 
+# The codec decoder currently being read from. Only set for the duration of
+# a read() call by _CountingStreamReader, which makes the shared registered
+# error handler effectively per-stream without any thread-global state.
+_active_replace_counter = None
+
+
+def _html5lib_replace_error_handler(exc):
+    """Codec error handler behaving like 'replace', while charging the
+    undecodable bytes to the stream currently being read.
+
+    Codec error handlers have to be registered by name (they cannot be
+    arbitrary callables), so a single named handler is shared and the
+    per-stream counter is selected via _active_replace_counter.
+    """
+    if _active_replace_counter is None:
+        # No owning stream in scope: behave like the standard 'replace'.
+        return ("�", exc.end)
+    _active_replace_counter[0] += exc.end - exc.start
+    return ("�", exc.end)
+
+
+codecs.register_error("html5libreplace", _html5lib_replace_error_handler)
+
+
+class _CountingStreamReader(object):
+    """Wrap a codec StreamReader so decode errors are counted on the owning
+    HTMLBinaryInputStream while output stays identical to 'replace'."""
+
+    def __init__(self, codec_info, stream, counter):
+        self._reader = codec_info.streamreader(stream, "html5libreplace")
+        self._counter = counter
+
+    def read(self, size=-1):
+        global _active_replace_counter
+        previous = _active_replace_counter
+        _active_replace_counter = self._counter
+        try:
+            return self._reader.read(size)
+        finally:
+            _active_replace_counter = previous
+
+    def readline(self, size=-1):
+        global _active_replace_counter
+        previous = _active_replace_counter
+        _active_replace_counter = self._counter
+        try:
+            return self._reader.readline(size)
+        finally:
+            _active_replace_counter = previous
+
+    def reset(self):
+        self._reader.reset()
+
+
 class BufferedStream(object):
     """Buffering for streams that do not have buffering of their own
 
@@ -182,10 +236,48 @@ class HTMLUnicodeInputStream(object):
         # List of where new lines occur
         self.newLines = [0]
 
+        # Audit trail of every encoding decision made for this stream.
+        # Each entry is a dict with keys:
+        #   source   - where the candidate came from ("bom", "override",
+        #              "transport", "meta", "parent", "likely", "chardet",
+        #              "default", "fallback", "meta-change")
+        #   encoding - codec name that was considered (or None)
+        #   confidence - "certain" or "tentative"
+        #   action   - "selected", "rejected", "ignored" or "upgraded"
+        #   reason   - human-readable explanation
+        self.encodingTrail = []
+
         self.charEncoding = (lookupEncoding("utf-8"), "certain")
         self.dataStream = self.openStream(source)
 
         self.reset()
+
+    @property
+    def encoding(self):
+        """Name of the encoding currently used to decode the stream."""
+        return self.charEncoding[0].name
+
+    @property
+    def encodingConfidence(self):
+        """``"certain"`` or ``"tentative"`` for the current encoding."""
+        return self.charEncoding[1]
+
+    @property
+    def decodeErrors(self):
+        """Number of undecodable bytes replaced with U+FFFD.
+
+        Unicode input is already decoded, so this is always zero here; the
+        binary subclass overrides it.
+        """
+        return 0
+
+    def encodingHistory(self):
+        """Return the ordered list of encoding decisions for this stream.
+
+        Every candidate that was considered appears once, including rejected
+        declarations and the reason each was or was not used.
+        """
+        return list(self.encodingTrail)
 
     def reset(self):
         self.chunk = ""
@@ -385,7 +477,8 @@ class HTMLBinaryInputStream(HTMLUnicodeInputStream):
 
     def __init__(self, source, override_encoding=None, transport_encoding=None,
                  same_origin_parent_encoding=None, likely_encoding=None,
-                 default_encoding="windows-1252", useChardet=True):
+                 default_encoding="windows-1252", useChardet=True,
+                 overrideMisdeclaredEncoding=True):
         """Initialises the HTMLInputStream.
 
         HTMLInputStream(source, [encoding]) -> Normalized stream from source
@@ -398,10 +491,30 @@ class HTMLBinaryInputStream(HTMLUnicodeInputStream):
         regardless of any BOM or later declaration (such as in a meta
         element)
 
+        :arg overrideMisdeclaredEncoding: when True (the default), a
+            *tentative* UTF-8 declaration (a meta element, parent or likely
+            encoding) whose bytes fail a strict UTF-8 decode is treated as
+            misdeclared: the document is sniffed for its real encoding
+            instead of being decoded as UTF-8 with replacement characters.
+            UTF-8 has strict byte-validity rules, so a failed strict decode
+            is conclusive evidence of a wrong label (unlike legacy multi-byte
+            codecs such as GBK, which accept nearly any byte sequence).
+            Authoritative signals (BOM, override, transport header) are
+            always honoured regardless of this setting. Set to False for
+            strict HTML-standard behaviour.
+
         """
         # Raw Stream - for unicode objects this will encode to utf-8 and set
         #              self.charEncoding as appropriate
         self.rawStream = self.openStream(source)
+
+        # Whole-document byte buffer, filled lazily when an encoding has to
+        # be checked against the actual bytes. Reused by every check so the
+        # raw stream is only drained once.
+        self._rawData = None
+
+        # Counter of undecodable bytes hit while reading; see decodeErrors.
+        self._replaceCounter = [0]
 
         HTMLUnicodeInputStream.__init__(self, self.rawStream)
 
@@ -409,8 +522,9 @@ class HTMLBinaryInputStream(HTMLUnicodeInputStream):
         # Number of bytes to use when looking for a meta element with
         # encoding information
         self.numBytesMeta = 1024
-        # Number of bytes to use when using detecting encoding using chardet
-        self.numBytesChardet = 100
+        # Whether a contradicted tentative UTF-8 declaration may be replaced
+        # by a sniffed encoding.
+        self.overrideMisdeclaredEncoding = overrideMisdeclaredEncoding
         # Things from args
         self.override_encoding = override_encoding
         self.transport_encoding = transport_encoding
@@ -426,8 +540,24 @@ class HTMLBinaryInputStream(HTMLUnicodeInputStream):
         self.reset()
 
     def reset(self):
-        self.dataStream = self.charEncoding[0].codec_info.streamreader(self.rawStream, 'replace')
+        # Reset the decode-error counter: after a reparse every byte is
+        # decoded again from scratch.
+        self._replaceCounter[0] = 0
+        self.dataStream = _CountingStreamReader(
+            self.charEncoding[0].codec_info, self.rawStream,
+            self._replaceCounter)
         HTMLUnicodeInputStream.reset(self)
+
+    @property
+    def decodeErrors(self):
+        """Number of undecodable bytes hit while reading the document with
+        the selected encoding.
+
+        The bytes are still emitted as U+FFFD replacement characters, so
+        parsing never fails; a non-zero count is the signal that the chosen
+        encoding does not actually match the document bytes.
+        """
+        return self._replaceCounter[0]
 
     def openStream(self, source):
         """Produces a file object from source.
@@ -448,83 +578,322 @@ class HTMLBinaryInputStream(HTMLUnicodeInputStream):
 
         return stream
 
+    def _recordEncoding(self, source, encoding, confidence, action, reason):
+        """Append one entry to the encoding decision audit trail."""
+        name = encoding.name if encoding is not None else None
+        self.encodingTrail.append({
+            "source": source,
+            "encoding": name,
+            "confidence": confidence,
+            "action": action,
+            "reason": reason,
+        })
+
+    def _readAllBytes(self):
+        """Return the whole input as one bytes object.
+
+        The raw stream is drained at most once; subsequent calls reuse the
+        cached buffer. The stream position is restored to where it was.
+        """
+        if self._rawData is None:
+            position = self.rawStream.tell()
+            self.rawStream.seek(0)
+            chunks = []
+            while True:
+                chunk = self.rawStream.read(1024 * 64)
+                assert isinstance(chunk, bytes)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            self._rawData = b"".join(chunks)
+            self.rawStream.seek(position)
+        return self._rawData
+
+    def _encodingFitsBytes(self, encoding):
+        """Check whether every byte of the input decodes under *encoding*
+        using a strict decode.
+
+        Returns (fits, detail) where detail describes the first failure.
+        """
+        data = self._readAllBytes()
+        try:
+            encoding.codec_info.decode(data, "strict")
+        except UnicodeDecodeError as exc:
+            detail = "byte 0x%02x at position %d: %s" % (
+                data[exc.start] if exc.start < len(data) else 0,
+                exc.start, exc.reason)
+            return False, detail
+        return True, ""
+
+    def _selectDeclaredEncoding(self, label, value, confidence):
+        """Resolve an encoding coming from an explicit declaration (BOM,
+        override, transport header, meta, parent or likely encoding).
+
+        Declarations are honoured at the point where the HTML standard gives
+        them authority; a strict decode is still attempted so that a
+        declaration contradicting the actual bytes is recorded in the audit
+        trail. Undecodable bytes are emitted as U+FFFD while reading and are
+        counted in ``decodeErrors``.
+
+        Returns the resolved encoding, or None if *value* names no known
+        codec.
+        """
+        encoding = lookupEncoding(value)
+        if encoding is None:
+            self._recordEncoding(label, None, confidence, "ignored",
+                                 "unknown or unsupported encoding %r" % (value,))
+            return None
+
+        fits, detail = self._encodingFitsBytes(encoding)
+        if fits:
+            self._recordEncoding(label, encoding, confidence, "selected",
+                                 "declared encoding decodes the whole "
+                                 "document without errors")
+        else:
+            self._recordEncoding(label, encoding, confidence, "selected",
+                                 "declared encoding kept per the HTML "
+                                 "standard, but it does not match the actual "
+                                 "bytes (%s); undecodable bytes are replaced "
+                                 "with U+FFFD and counted in decodeErrors"
+                                 % detail)
+        return encoding
+
+    def _selectValidatedEncoding(self, label, value, confidence, reason_ok):
+        """Resolve an encoding that was guessed rather than declared.
+
+        Guesses (chardet, the configured default) are only accepted when a
+        strict decode of the whole document succeeds, so a bad guess can never
+        silently replace bytes with U+FFFD. Returns the encoding or None.
+        """
+        encoding = lookupEncoding(value)
+        if encoding is None:
+            self._recordEncoding(label, None, confidence, "ignored",
+                                 "unknown or unsupported encoding %r" % (value,))
+            return None
+
+        fits, detail = self._encodingFitsBytes(encoding)
+        if not fits:
+            self._recordEncoding(label, encoding, confidence, "rejected",
+                                 "fails a strict decode of the document (%s)"
+                                 % detail)
+            return None
+
+        self._recordEncoding(label, encoding, confidence, "selected",
+                             reason_ok)
+        return encoding
+
+    def _detectWithChardet(self):
+        """Run chardet over the buffered document and validate its guess.
+
+        Returns the detected encoding, or None if chardet is unavailable or
+        its guess does not actually decode the document.
+        """
+        try:
+            try:
+                # chardet >= 5 exposes this at the top level
+                from chardet import UniversalDetector
+            except ImportError:
+                from chardet.universaldetector import UniversalDetector
+        except ImportError:
+            self._recordEncoding("chardet", None, "tentative", "ignored",
+                                 "chardet is not installed")
+            return None
+
+        data = self._readAllBytes()
+        detector = UniversalDetector()
+        detector.feed(data)
+        detector.close()
+        guess = detector.result.get("encoding")
+        return self._selectValidatedEncoding(
+            "chardet", guess, "tentative",
+            "content sniffing (confidence %s) followed by a successful "
+            "strict decode" % detector.result.get("confidence"))
+
+    def _utf8DeclarationIsContradicted(self, encoding):
+        """Check whether *encoding* is UTF-8 while the bytes are not valid
+        UTF-8. UTF-8 has strict byte-validity rules, so a failed strict decode
+        proves the declaration is wrong (a legacy codec such as GBK accepts
+        almost any byte sequence and cannot be disproved this way).
+
+        Returns (contradicted, detail) where *detail* describes the first
+        failing byte, or an empty string on success.
+        """
+        if encoding is None or encoding.name != "utf-8":
+            return False, ""
+        fits, detail = self._encodingFitsBytes(encoding)
+        return (not fits), detail
+
+    def _resolveTentativeDeclaration(self, label, value, chardet):
+        """Resolve a tentative encoding declaration (meta element, parent or
+        likely encoding).
+
+        Returns (encoding, confidence) when the declaration is used. When a
+        contradicted UTF-8 declaration is corrected through content sniffing,
+        returns the sniffed (encoding, "tentative") instead. Returns None if
+        *value* does not name a known codec.
+        """
+        encoding = lookupEncoding(value)
+        if encoding is None:
+            self._recordEncoding(label, None, "tentative", "ignored",
+                                 "unknown or unsupported encoding %r" % (value,))
+            return None
+
+        contradicted, detail = self._utf8DeclarationIsContradicted(encoding)
+        if chardet and self.overrideMisdeclaredEncoding and contradicted:
+            self._recordEncoding(
+                label, encoding, "tentative", "rejected",
+                "declared utf-8 but the document is not valid utf-8 (%s); "
+                "sniffing the real encoding instead "
+                "(overrideMisdeclaredEncoding=True)" % detail)
+            sniffed = self._sniffRealEncoding()
+            if sniffed is not None:
+                return sniffed, "tentative"
+            # Nothing usable could be sniffed (e.g. chardet missing): keep
+            # the declaration so parsing still proceeds, and record why.
+            self._recordEncoding(
+                label, encoding, "tentative", "selected",
+                "kept anyway because no alternative encoding could be "
+                "determined; undecodable bytes are replaced with U+FFFD "
+                "and counted in decodeErrors")
+            return encoding, "tentative"
+
+        selected = self._selectDeclaredEncoding(label, value, "tentative")
+        return selected, "tentative"
+
     def determineEncoding(self, chardet=True):
         # BOMs take precedence over everything
         # This will also read past the BOM if present
-        charEncoding = self.detectBOM(), "certain"
-        if charEncoding[0] is not None:
-            return charEncoding
+        bomEncoding = self.detectBOM()
+        if bomEncoding is not None:
+            # The BOM is authoritative, but still verify it against the bytes
+            # for the audit trail and to flag truncated/mismatched content.
+            fits, detail = self._encodingFitsBytes(bomEncoding)
+            if fits:
+                self._recordEncoding("bom", bomEncoding, "certain", "selected",
+                                     "byte-order mark found and strict decode "
+                                     "succeeded")
+            else:
+                self._recordEncoding("bom", bomEncoding, "certain", "selected",
+                                     "byte-order mark found; decode failure "
+                                     "(%s)" % detail)
+            return bomEncoding, "certain"
 
         # If we've been overridden, we've been overridden
-        charEncoding = lookupEncoding(self.override_encoding), "certain"
-        if charEncoding[0] is not None:
-            return charEncoding
+        if self.override_encoding is not None:
+            encoding = self._selectDeclaredEncoding(
+                "override", self.override_encoding, "certain")
+            if encoding is not None:
+                return encoding, "certain"
 
         # Now check the transport layer
-        charEncoding = lookupEncoding(self.transport_encoding), "certain"
-        if charEncoding[0] is not None:
-            return charEncoding
+        if self.transport_encoding is not None:
+            encoding = self._selectDeclaredEncoding(
+                "transport", self.transport_encoding, "certain")
+            if encoding is not None:
+                return encoding, "certain"
 
         # Look for meta elements with encoding information
-        charEncoding = self.detectEncodingMeta(), "tentative"
-        if charEncoding[0] is not None:
-            return charEncoding
+        metaEncoding = self.detectEncodingMeta()
+        if metaEncoding is not None:
+            resolved = self._resolveTentativeDeclaration(
+                "meta", metaEncoding.name, chardet)
+            if resolved is not None:
+                return resolved
 
         # Parent document encoding
-        charEncoding = lookupEncoding(self.same_origin_parent_encoding), "tentative"
-        if charEncoding[0] is not None and not charEncoding[0].name.startswith("utf-16"):
-            return charEncoding
+        if self.same_origin_parent_encoding is not None:
+            parentEncoding = lookupEncoding(self.same_origin_parent_encoding)
+            if parentEncoding is None:
+                pass
+            elif parentEncoding.name.startswith("utf-16"):
+                self._recordEncoding("parent", parentEncoding, "tentative",
+                                     "ignored",
+                                     "utf-16 parent encodings are not "
+                                     "inherited")
+            else:
+                resolved = self._resolveTentativeDeclaration(
+                    "parent", self.same_origin_parent_encoding, chardet)
+                if resolved is not None:
+                    return resolved
 
         # "likely" encoding
-        charEncoding = lookupEncoding(self.likely_encoding), "tentative"
-        if charEncoding[0] is not None:
-            return charEncoding
+        if self.likely_encoding is not None:
+            resolved = self._resolveTentativeDeclaration(
+                "likely", self.likely_encoding, chardet)
+            if resolved is not None:
+                return resolved
 
-        # Guess with chardet, if available
+        # Guess with chardet, if available. Unlike a declaration, a guess is
+        # only accepted if it decodes the whole document cleanly.
         if chardet:
-            try:
-                from chardet.universaldetector import UniversalDetector
-            except ImportError:
-                pass
-            else:
-                buffers = []
-                detector = UniversalDetector()
-                while not detector.done:
-                    buffer = self.rawStream.read(self.numBytesChardet)
-                    assert isinstance(buffer, bytes)
-                    if not buffer:
-                        break
-                    buffers.append(buffer)
-                    detector.feed(buffer)
-                detector.close()
-                encoding = lookupEncoding(detector.result['encoding'])
-                self.rawStream.seek(0)
-                if encoding is not None:
-                    return encoding, "tentative"
+            encoding = self._detectWithChardet()
+            if encoding is not None:
+                return encoding, "tentative"
 
-        # Try the default encoding
-        charEncoding = lookupEncoding(self.default_encoding), "tentative"
-        if charEncoding[0] is not None:
-            return charEncoding
+        # Try the configured default encoding, again requiring a clean decode.
+        if self.default_encoding is not None:
+            encoding = self._selectValidatedEncoding(
+                "default", self.default_encoding, "tentative",
+                "configured default encoding decodes the whole document")
+            if encoding is not None:
+                return encoding, "tentative"
 
-        # Fallback to html5lib's default if even that hasn't worked
-        return lookupEncoding("windows-1252"), "tentative"
+        # Fallback to html5lib's default if even that hasn't worked. A
+        # single-byte codec cannot raise, so this always yields a stream.
+        fallback = lookupEncoding("windows-1252")
+        self._recordEncoding("fallback", fallback, "tentative", "selected",
+                             "no usable signal found; using the spec-defined "
+                             "single-byte fallback (every byte decodes)")
+        return fallback, "tentative"
+
+    def _sniffRealEncoding(self):
+        """Content-sniff after a contradicted UTF-8 declaration. Only guesses
+        that pass a strict decode are accepted. Returns None when chardet is
+        unavailable or cannot produce a valid encoding."""
+        return self._detectWithChardet()
 
     def changeEncoding(self, newEncoding):
         assert self.charEncoding[1] != "certain"
-        newEncoding = lookupEncoding(newEncoding)
-        if newEncoding is None:
+        lookedUp = lookupEncoding(newEncoding)
+        if lookedUp is None:
+            self._recordEncoding("meta-change", None, "tentative", "ignored",
+                                 "in-document meta declaration references an "
+                                 "unknown encoding %r" % (newEncoding,))
             return
+        newEncoding = lookedUp
         if newEncoding.name in ("utf-16be", "utf-16le"):
+            self._recordEncoding("meta-change", newEncoding, "tentative",
+                                 "ignored",
+                                 "in-document switch to a utf-16 encoding is "
+                                 "mapped to utf-8")
             newEncoding = lookupEncoding("utf-8")
             assert newEncoding is not None
         elif newEncoding == self.charEncoding[0]:
+            self._recordEncoding("meta-change", newEncoding, "certain",
+                                 "upgraded",
+                                 "in-document meta declaration confirms the "
+                                 "current encoding")
             self.charEncoding = (self.charEncoding[0], "certain")
         else:
+            fits, detail = self._encodingFitsBytes(newEncoding)
+            if not fits:
+                # Keep the current (already in use) encoding rather than
+                # switching to one known to corrupt the document.
+                self._recordEncoding("meta-change", newEncoding, "tentative",
+                                     "rejected",
+                                     "in-document meta declaration fails a "
+                                     "strict decode (%s)" % detail)
+                return
+            self._recordEncoding("meta-change", newEncoding, "certain",
+                                 "selected",
+                                 "in-document meta declaration; strict "
+                                 "decode succeeded")
             self.rawStream.seek(0)
+            oldEncoding = self.charEncoding[0]
             self.charEncoding = (newEncoding, "certain")
             self.reset()
-            raise _ReparseException("Encoding changed from %s to %s" % (self.charEncoding[0], newEncoding))
+            raise _ReparseException(
+                "Encoding changed from %s to %s" % (oldEncoding, newEncoding))
 
     def detectBOM(self):
         """Attempts to detect at BOM at the start of the stream. If
@@ -540,12 +909,14 @@ class HTMLBinaryInputStream(HTMLUnicodeInputStream):
         string = self.rawStream.read(4)
         assert isinstance(string, bytes)
 
-        # Try detecting the BOM using bytes from the string
+        # Try detecting the BOM using bytes from the string.
+        # Four-byte BOMs (UTF-32) must be checked before the two-byte UTF-16
+        # BOMs: a UTF-32 BOM starts with the same two bytes as a UTF-16 BOM,
+        # so a two-byte check first would always misidentify it.
         encoding = bomDict.get(string[:3])         # UTF-8
         seek = 3
         if not encoding:
-            # Need to detect UTF-32 before UTF-16
-            encoding = bomDict.get(string)         # UTF-32
+            encoding = bomDict.get(string)         # UTF-32 (full 4 bytes)
             seek = 4
             if not encoding:
                 encoding = bomDict.get(string[:2])  # UTF-16
@@ -555,7 +926,9 @@ class HTMLBinaryInputStream(HTMLUnicodeInputStream):
         # set it to the start of the stream
         if encoding:
             self.rawStream.seek(seek)
-            return lookupEncoding(encoding)
+            # UTF-32 is not part of the WHATWG Encoding Standard, so it is
+            # not known to webencodings; fall back to the stdlib codec.
+            return lookupEncodingWithFallback(encoding)
         else:
             self.rawStream.seek(0)
             return None
@@ -915,4 +1288,48 @@ def lookupEncoding(encoding):
         except AttributeError:
             return None
     else:
+        return None
+
+
+# Encodings the WHATWG Encoding Standard (webencodings) does not know about
+# but which still turn up in real documents, together with the name of a
+# codec Python ships in its standard library.
+_stdlibFallbackEncodings = {
+    "utf-32le": "utf-32-le",
+    "utf-32be": "utf-32-be",
+}
+
+
+def lookupEncodingWithFallback(encoding):
+    """Like lookupEncoding, but fall back to a Python standard library codec
+    for encodings outside the WHATWG Encoding Standard (e.g. UTF-32).
+
+    The returned object mimics the small piece of webencodings' Encoding
+    interface used elsewhere (a ``name`` attribute and a ``codec_info``
+    attribute).
+    """
+    lookedUp = lookupEncoding(encoding)
+    if lookedUp is not None:
+        return lookedUp
+
+    if isinstance(encoding, bytes):
+        try:
+            encoding = encoding.decode("ascii")
+        except UnicodeDecodeError:
+            return None
+    if not isinstance(encoding, str):
+        return None
+
+    stdlibName = _stdlibFallbackEncodings.get(encoding.lower())
+    if stdlibName is None:
+        return None
+
+    class _StdlibEncoding(object):
+        def __init__(self, name, codec_info):
+            self.name = name
+            self.codec_info = codec_info
+
+    try:
+        return _StdlibEncoding(encoding.lower(), codecs.lookup(stdlibName))
+    except LookupError:
         return None

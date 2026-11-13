@@ -163,3 +163,26 @@ the following way:
 * If all else fails, the default encoding will be used. This is usually
   `Windows-1252 <http://en.wikipedia.org/wiki/Windows-1252>`_, which is
   a common fallback used by Web browsers.
+
+Misdeclared encodings and byte-order marks
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Real-world pages sometimes label themselves incorrectly. A byte-order mark
+(UTF-8, UTF-16 or UTF-32) is always honoured and stripped, so it never leaks
+into the decoded text as a leading stray character. When a *tentative*
+declaration (a ``<meta>`` element, parent or likely encoding) claims UTF-8
+but the bytes fail a strict UTF-8 decode, the declaration is treated as
+misdeclared and the document is content-sniffed for its real encoding
+instead. Authoritative signals (a byte-order mark, an explicit override or a
+transport header) are always honoured; pass
+``overrideMisdeclaredEncoding=False`` to disable the correction entirely and
+follow the HTML standard literally.
+
+Every encoding decision is recorded, including rejected declarations and the
+byte that caused the rejection. After parsing, inspect
+:attr:`~html5lib.html5parser.HTMLParser.documentEncoding`,
+:attr:`~html5lib.html5parser.HTMLParser.documentEncodingConfidence`,
+:attr:`~html5lib.html5parser.HTMLParser.encodingTrail` and
+:attr:`~html5lib.html5parser.HTMLParser.decodeErrors`. A non-zero
+``decodeErrors`` count means undecodable bytes were replaced with U+FFFD and
+the chosen encoding does not actually match the document.

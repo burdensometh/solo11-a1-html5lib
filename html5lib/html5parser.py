@@ -169,6 +169,43 @@ class HTMLParser(object):
             return None
         return self.tokenizer.stream.charEncoding[0].name
 
+    @property
+    def documentEncodingConfidence(self):
+        """Confidence of the encoding used to decode the input stream:
+        ``"certain"`` or ``"tentative"``, or :obj:`None` before parsing.
+
+        """
+        if not hasattr(self, 'tokenizer'):
+            return None
+        return self.tokenizer.stream.charEncoding[1]
+
+    @property
+    def encodingTrail(self):
+        """Ordered list of encoding decisions taken while decoding the last
+        parsed document, or :obj:`None` before parsing.
+
+        Each entry records the signal source (``"bom"``, ``"transport"``,
+        ``"meta"``, ``"chardet"`` ...), the encoding considered, its
+        confidence, whether it was selected/rejected/ignored and why. This
+        makes a wrong decode diagnosable: it shows exactly which encoding was
+        used and on what evidence.
+        """
+        if not hasattr(self, 'tokenizer'):
+            return None
+        return self.tokenizer.stream.encodingHistory()
+
+    @property
+    def decodeErrors(self):
+        """Number of undecodable bytes replaced with U+FFFD while decoding the
+        last parsed document, or :obj:`None` before parsing.
+
+        A non-zero value means the selected encoding did not perfectly match
+        the document bytes. Always 0 for unicode input.
+        """
+        if not hasattr(self, 'tokenizer'):
+            return None
+        return self.tokenizer.stream.decodeErrors
+
     def isHTMLIntegrationPoint(self, element):
         if (element.name == "annotation-xml" and
                 element.namespace == namespaces["mathml"]):
