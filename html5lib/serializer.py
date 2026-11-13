@@ -124,13 +124,14 @@ class HTMLSerializer(object):
     inject_meta_charset = True
     strip_whitespace = False
     sanitize = False
+    sanitizer_removals = None
 
     options = ("quote_attr_values", "quote_char", "use_best_quote_char",
                "omit_optional_tags", "minimize_boolean_attributes",
                "use_trailing_solidus", "space_before_trailing_solidus",
                "escape_lt_in_attrs", "escape_rcdata", "resolve_entities",
                "alphabetical_attributes", "inject_meta_charset",
-               "strip_whitespace", "sanitize")
+               "strip_whitespace", "sanitize", "sanitizer_removals")
 
     def __init__(self, **kwargs):
         """Initialize HTMLSerializer
@@ -202,6 +203,13 @@ class HTMLSerializer(object):
 
             Defaults to ``False``.
 
+        :arg sanitizer_removals: Optional list that is populated with audit
+            records describing every construct removed while sanitizing (only
+            used when ``sanitize`` is true). Each record is a dict with at
+            least ``reason`` and ``target`` keys.
+
+            Defaults to ``None``, meaning nothing is recorded.
+
         :arg omit_optional_tags: Omit start/end tags that are optional.
 
             Defaults to ``True``.
@@ -257,7 +265,7 @@ class HTMLSerializer(object):
             treewalker = Filter(treewalker)
         if self.sanitize:
             from .filters.sanitizer import Filter
-            treewalker = Filter(treewalker)
+            treewalker = Filter(treewalker, removals=self.sanitizer_removals)
         if self.omit_optional_tags:
             from .filters.optionaltags import Filter
             treewalker = Filter(treewalker)

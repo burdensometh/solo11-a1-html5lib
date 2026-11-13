@@ -38,6 +38,8 @@ allowed_elements = frozenset((
     (namespaces['html'], 'aside'),
     (namespaces['html'], 'audio'),
     (namespaces['html'], 'b'),
+    (namespaces['html'], 'bdi'),
+    (namespaces['html'], 'bdo'),
     (namespaces['html'], 'big'),
     (namespaces['html'], 'blockquote'),
     (namespaces['html'], 'br'),
@@ -81,13 +83,15 @@ allowed_elements = frozenset((
     (namespaces['html'], 'img'),
     (namespaces['html'], 'input'),
     (namespaces['html'], 'ins'),
-    (namespaces['html'], 'keygen'),
     (namespaces['html'], 'kbd'),
+    (namespaces['html'], 'keygen'),
     (namespaces['html'], 'label'),
     (namespaces['html'], 'legend'),
     (namespaces['html'], 'li'),
     (namespaces['html'], 'm'),
+    (namespaces['html'], 'main'),
     (namespaces['html'], 'map'),
+    (namespaces['html'], 'mark'),
     (namespaces['html'], 'menu'),
     (namespaces['html'], 'meter'),
     (namespaces['html'], 'multicol'),
@@ -98,9 +102,13 @@ allowed_elements = frozenset((
     (namespaces['html'], 'optgroup'),
     (namespaces['html'], 'option'),
     (namespaces['html'], 'p'),
+    (namespaces['html'], 'picture'),
     (namespaces['html'], 'pre'),
     (namespaces['html'], 'progress'),
     (namespaces['html'], 'q'),
+    (namespaces['html'], 'rp'),
+    (namespaces['html'], 'rt'),
+    (namespaces['html'], 'ruby'),
     (namespaces['html'], 's'),
     (namespaces['html'], 'samp'),
     (namespaces['html'], 'section'),
@@ -203,7 +211,44 @@ allowed_attributes = frozenset((
     (None, 'action'),
     (None, 'align'),
     (None, 'alt'),
+    (None, 'aria-activedescendant'),
+    (None, 'aria-atomic'),
+    (None, 'aria-autocomplete'),
+    (None, 'aria-busy'),
+    (None, 'aria-checked'),
+    (None, 'aria-controls'),
+    (None, 'aria-current'),
+    (None, 'aria-describedby'),
+    (None, 'aria-disabled'),
+    (None, 'aria-dropeffect'),
+    (None, 'aria-expanded'),
+    (None, 'aria-flowto'),
+    (None, 'aria-grabbed'),
+    (None, 'aria-haspopup'),
+    (None, 'aria-hidden'),
+    (None, 'aria-invalid'),
+    (None, 'aria-label'),
+    (None, 'aria-labelledby'),
+    (None, 'aria-level'),
+    (None, 'aria-live'),
+    (None, 'aria-multiline'),
+    (None, 'aria-multiselectable'),
+    (None, 'aria-orientation'),
+    (None, 'aria-owns'),
+    (None, 'aria-posinset'),
+    (None, 'aria-pressed'),
+    (None, 'aria-readonly'),
+    (None, 'aria-relevant'),
+    (None, 'aria-required'),
+    (None, 'aria-selected'),
+    (None, 'aria-setsize'),
+    (None, 'aria-sort'),
+    (None, 'aria-valuemax'),
+    (None, 'aria-valuemin'),
+    (None, 'aria-valuenow'),
+    (None, 'aria-valuetext'),
     (None, 'autocomplete'),
+    (None, 'autocorrect'),
     (None, 'autofocus'),
     (None, 'axis'),
     (None, 'background'),
@@ -234,15 +279,18 @@ allowed_attributes = frozenset((
     (None, 'contenteditable'),
     (None, 'controls'),
     (None, 'coords'),
+    (None, 'crossorigin'),
     (None, 'data'),
     (None, 'datafld'),
     (None, 'datapagesize'),
     (None, 'datasrc'),
     (None, 'datetime'),
+    (None, 'decoding'),
     (None, 'default'),
     (None, 'delay'),
     (None, 'dir'),
     (None, 'disabled'),
+    (None, 'download'),
     (None, 'draggable'),
     (None, 'dynsrc'),
     (None, 'enctype'),
@@ -250,6 +298,7 @@ allowed_attributes = frozenset((
     (None, 'face'),
     (None, 'for'),
     (None, 'form'),
+    (None, 'formaction'),
     (None, 'frame'),
     (None, 'galleryimg'),
     (None, 'gutter'),
@@ -265,11 +314,18 @@ allowed_attributes = frozenset((
     (None, 'id'),
     (None, 'inputmode'),
     (None, 'ismap'),
+    (None, 'itemid'),
+    (None, 'itemprop'),
+    (None, 'itemref'),
+    (None, 'itemscope'),
+    (None, 'itemtype'),
     (None, 'keytype'),
+    (None, 'kind'),
     (None, 'label'),
-    (None, 'leftspacing'),
     (None, 'lang'),
+    (None, 'leftspacing'),
     (None, 'list'),
+    (None, 'loading'),
     (None, 'longdesc'),
     (None, 'loop'),
     (None, 'loopcount'),
@@ -282,15 +338,19 @@ allowed_attributes = frozenset((
     (None, 'media'),
     (None, 'method'),
     (None, 'min'),
+    (None, 'minlength'),
     (None, 'multiple'),
+    (None, 'muted'),
     (None, 'name'),
     (None, 'nohref'),
     (None, 'noshade'),
+    (None, 'novalidate'),
     (None, 'nowrap'),
     (None, 'open'),
     (None, 'optimum'),
     (None, 'pattern'),
     (None, 'ping'),
+    (None, 'placeholder'),
     (None, 'point-size'),
     (None, 'poster'),
     (None, 'pqg'),
@@ -305,6 +365,7 @@ allowed_attributes = frozenset((
     (None, 'required'),
     (None, 'rev'),
     (None, 'rightspacing'),
+    (None, 'role'),
     (None, 'rows'),
     (None, 'rowspan'),
     (None, 'rules'),
@@ -312,8 +373,13 @@ allowed_attributes = frozenset((
     (None, 'selected'),
     (None, 'shape'),
     (None, 'size'),
+    (None, 'sizes'),
+    (None, 'slot'),
     (None, 'span'),
+    (None, 'spellcheck'),
     (None, 'src'),
+    (None, 'srclang'),
+    (None, 'srcset'),
     (None, 'start'),
     (None, 'step'),
     (None, 'style'),
@@ -324,6 +390,7 @@ allowed_attributes = frozenset((
     (None, 'template'),
     (None, 'title'),
     (None, 'toppadding'),
+    (None, 'translate'),
     (None, 'type'),
     (None, 'unselectable'),
     (None, 'usemap'),
@@ -530,6 +597,7 @@ attr_val_is_uri = frozenset((
     (None, 'src'),
     (None, 'cite'),
     (None, 'action'),
+    (None, 'formaction'),
     (None, 'longdesc'),
     (None, 'poster'),
     (None, 'background'),
@@ -539,6 +607,15 @@ attr_val_is_uri = frozenset((
     (None, 'ping'),
     (namespaces['xlink'], 'href'),
     (namespaces['xml'], 'base'),
+))
+
+# Attributes whose value is a comma-separated list of one or more URIs
+# (each optionally followed by whitespace and a descriptor, e.g. a
+# pixel-density or width descriptor). Every candidate URI has to pass the
+# same protocol checks as a single-URI attribute; if any one fails the
+# whole attribute is dropped rather than silently rewriting the list.
+attr_val_is_uri_set = frozenset((
+    (None, 'srcset'),
 ))
 
 svg_attr_val_allows_ref = frozenset((
@@ -730,7 +807,15 @@ data_content_type = re.compile(r'''
 
 
 class Filter(base.Filter):
-    """Sanitizes token stream of XHTML+MathML+SVG and of inline style attributes"""
+    """Sanitizes token stream of XHTML+MathML+SVG and of inline style attributes
+
+    Every removal the filter performs is auditable: pass an empty list (or any
+    mutable sequence) as ``removals`` and, once the stream has been consumed,
+    it will contain one dict per dropped construct describing what was removed
+    and why. Logging is off by default and costs nothing when off, so existing
+    callers see no behaviour change apart from the (strictly additive) wider
+    default whitelist.
+    """
     def __init__(self,
                  source,
                  allowed_elements=allowed_elements,
@@ -742,11 +827,14 @@ class Filter(base.Filter):
                  allowed_content_types=allowed_content_types,
                  attr_val_is_uri=attr_val_is_uri,
                  svg_attr_val_allows_ref=svg_attr_val_allows_ref,
-                 svg_allow_local_href=svg_allow_local_href):
+                 svg_allow_local_href=svg_allow_local_href,
+                 allowed_attribute_prefixes=None,
+                 removals=None):
         """Creates a Filter
 
         :arg allowed_elements: set of elements to allow--everything else will
-            be escaped
+            be escaped (the element itself becomes visible text; its content is
+            never deleted wholesale)
 
         :arg allowed_attributes: set of attributes to allow in
             elements--everything else will be stripped
@@ -773,6 +861,17 @@ class Filter(base.Filter):
         :arg svg_allow_local_href: set of SVG elements that can have local
             hrefs--these are removed
 
+        :arg allowed_attribute_prefixes: iterable of ``(namespace, prefix)``
+            tuples (use ``None`` for the HTML/no namespace) whose attributes
+            are allowed by prefix, e.g. ``data-``. Defaults to the HTML
+            ``data-`` family. Event handler attributes such as ``onclick``
+            never match a prefix and are always stripped.
+
+        :arg removals: optional list that, after the stream is consumed, is
+            populated with one audit record per removed element, attribute,
+            comment or CSS declaration. Each record is a plain JSON-serialisable
+            dict with at least ``reason`` and ``target`` keys.
+
         """
         super(Filter, self).__init__(source)
 
@@ -788,6 +887,130 @@ class Filter(base.Filter):
         self.attr_val_is_uri = attr_val_is_uri
         self.svg_attr_val_allows_ref = svg_attr_val_allows_ref
         self.svg_allow_local_href = svg_allow_local_href
+        if allowed_attribute_prefixes is None:
+            allowed_attribute_prefixes = frozenset((
+                (None, 'data-'),
+            ))
+        self.allowed_attribute_prefixes = frozenset(allowed_attribute_prefixes)
+        # An audit sink the caller can inspect after iteration. When left as
+        # None the logging paths reduce to a single attribute check.
+        self.removals = removals
+
+    def _log_removal(self, reason, target, **details):
+        """Record one removal for later auditing.
+
+        Records are kept small and free of token object references so the log
+        stays JSON-serialisable and does not pin the whole token stream in
+        memory. Attribute values are truncated; they may contain sensitive
+        input and are only included as an aid to debugging.
+        """
+        if self.removals is None:
+            return
+        record = {"reason": reason, "target": target}
+        for key, value in details.items():
+            if isinstance(value, str) and len(value) > 120:
+                value = value[:117] + "..."
+            record[key] = value
+        self.removals.append(record)
+
+    @staticmethod
+    def _attribute_label(attr):
+        namespace, name = attr
+        if namespace is None:
+            return name
+        prefix = prefixes.get(namespace)
+        if prefix is None:
+            return name
+        return "%s:%s" % (prefix, name)
+
+    def _attribute_allowed(self, attr):
+        if attr in self.allowed_attributes:
+            return True
+        namespace, name = attr
+        for prefix_namespace, prefix in self.allowed_attribute_prefixes:
+            if prefix_namespace == namespace and name.startswith(prefix):
+                return True
+        return False
+
+    def _uri_is_safe(self, value):
+        """Return True if a single URI value is safe to keep.
+
+        The value is expected to already have gone through the same
+        whitespace/entity normalisation the single-URI path uses.
+        """
+        try:
+            uri = urlparse.urlparse(value)
+        except ValueError:
+            return False
+        if not uri.scheme:
+            # Relative, fragment-only and scheme-relative URIs have no
+            # protocol to abuse and are always acceptable.
+            return True
+        if uri.scheme not in self.allowed_protocols:
+            return False
+        if uri.scheme == 'data':
+            match = data_content_type.match(uri.path)
+            if not match:
+                return False
+            if match.group('content_type') not in self.allowed_content_types:
+                return False
+        return True
+
+    def _normalize_uri(self, value):
+        """Normalise a URI the same way the historical single-URI path did."""
+        # I don't have a clue where this regexp comes from or why it matches those
+        # characters, nor why we call unescape. I just know it's always been here.
+        # Should you be worried by this comment in a sanitizer? Yes. On the other
+        # hand, all this will do is remove *more* than it otherwise would.
+        normalized = re.sub("[`\x00-\x20\x7f-\xa0\\s]+", '',
+                            unescape(value)).lower()
+        # remove replacement characters from unescaped characters
+        return normalized.replace("\ufffd", "")
+
+    def _split_srcset(self, value):
+        """Split a srcset value into its candidate entries.
+
+        Follows the WHATWG srcset splitting rule: candidates are separated by
+        commas that are *followed by whitespace*. A comma with no following
+        whitespace belongs to the current URI -- this matters because
+        ``data:`` URIs contain a comma between the metadata and payload
+        (``data:image/png;base64,AAAA,...``) and plain URIs may legally carry
+        commas in their query component.
+        """
+        entries = []
+        current = []
+        index = 0
+        length = len(value)
+        while index < length:
+            char = value[index]
+            if char == ',' and index + 1 < length and value[index + 1].isspace():
+                entries.append(''.join(current))
+                current = []
+                index += 1
+                continue
+            current.append(char)
+            index += 1
+        entries.append(''.join(current))
+        return entries
+
+    def _srcset_is_safe(self, value):
+        """Validate every candidate URI in a srcset value.
+
+        A srcset is a comma-separated list of ``URI [descriptor]`` entries.
+        Descriptors (``2x``, ``100w``) start after the first whitespace run,
+        so only the leading token of each entry is treated as a URI. The
+        split has to happen on the *raw* value: the URI normalisation strips
+        whitespace as an obfuscation defence, which would otherwise glue a URI
+        to its descriptor.
+        """
+        for candidate in self._split_srcset(value):
+            stripped = candidate.strip()
+            if not stripped:
+                continue
+            uri_part = stripped.split(None, 1)[0]
+            if not self._uri_is_safe(self._normalize_uri(uri_part)):
+                return False
+        return True
 
     def __iter__(self):
         for token in base.Filter.__iter__(self):
@@ -820,6 +1043,11 @@ class Filter(base.Filter):
             else:
                 return self.disallowed_token(token)
         elif token_type == "Comment":
+            # Comments have always been dropped; record the drop so it is
+            # visible rather than silent. Content itself is never rendered.
+            self._log_removal("disallowed_comment", "<!-- -->",
+                              element=None,
+                              snippet=token.get("data", ""))
             pass
         else:
             return token
@@ -828,37 +1056,40 @@ class Filter(base.Filter):
         if "data" in token:
             attrs = token["data"]
             attr_names = set(attrs.keys())
+            element = token["name"]
 
             # Remove forbidden attributes
-            for to_remove in (attr_names - self.allowed_attributes):
+            for to_remove in [attr for attr in attr_names
+                              if not self._attribute_allowed(attr)]:
+                self._log_removal("disallowed_attribute",
+                                  self._attribute_label(to_remove),
+                                  element=element,
+                                  value=attrs[to_remove])
                 del token["data"][to_remove]
                 attr_names.remove(to_remove)
 
             # Remove attributes with disallowed URL values
             for attr in (attr_names & self.attr_val_is_uri):
                 assert attr in attrs
-                # I don't have a clue where this regexp comes from or why it matches those
-                # characters, nor why we call unescape. I just know it's always been here.
-                # Should you be worried by this comment in a sanitizer? Yes. On the other hand, all
-                # this will do is remove *more* than it otherwise would.
-                val_unescaped = re.sub("[`\x00-\x20\x7f-\xa0\\s]+", '',
-                                       unescape(attrs[attr])).lower()
-                # remove replacement characters from unescaped characters
-                val_unescaped = val_unescaped.replace("\ufffd", "")
-                try:
-                    uri = urlparse.urlparse(val_unescaped)
-                except ValueError:
-                    uri = None
+                val_unescaped = self._normalize_uri(attrs[attr])
+                if not self._uri_is_safe(val_unescaped):
+                    self._log_removal("disallowed_uri",
+                                      self._attribute_label(attr),
+                                      element=element,
+                                      value=attrs[attr])
                     del attrs[attr]
-                if uri and uri.scheme:
-                    if uri.scheme not in self.allowed_protocols:
-                        del attrs[attr]
-                    if uri.scheme == 'data':
-                        m = data_content_type.match(uri.path)
-                        if not m:
-                            del attrs[attr]
-                        elif m.group('content_type') not in self.allowed_content_types:
-                            del attrs[attr]
+                    attr_names.discard(attr)
+
+            # Multi-URI attributes (srcset): every candidate must be safe,
+            # otherwise the whole attribute is dropped.
+            for attr in (attr_names & attr_val_is_uri_set):
+                if not self._srcset_is_safe(attrs[attr]):
+                    self._log_removal("disallowed_uri_set",
+                                      self._attribute_label(attr),
+                                      element=element,
+                                      value=attrs[attr])
+                    del attrs[attr]
+                    attr_names.discard(attr)
 
             for attr in self.svg_attr_val_allows_ref:
                 if attr in attrs:
@@ -868,14 +1099,30 @@ class Filter(base.Filter):
             if (token["name"] in self.svg_allow_local_href and
                 (namespaces['xlink'], 'href') in attrs and re.search(r'^\s*[^#\s].*',
                                                                      attrs[(namespaces['xlink'], 'href')])):
+                self._log_removal("disallowed_svg_local_href",
+                                  self._attribute_label((namespaces['xlink'], 'href')),
+                                  element=element,
+                                  value=attrs[(namespaces['xlink'], 'href')])
                 del attrs[(namespaces['xlink'], 'href')]
             if (None, 'style') in attrs:
-                attrs[(None, 'style')] = self.sanitize_css(attrs[(None, 'style')])
+                new_style, dropped = self.sanitize_css(attrs[(None, 'style')])
+                attrs[(None, 'style')] = new_style
+                for declaration in dropped:
+                    self._log_removal("disallowed_css_declaration",
+                                      declaration,
+                                      element=element)
             token["data"] = attrs
         return token
 
     def disallowed_token(self, token):
         token_type = token["type"]
+        # Only log the opening/empty token; the matching EndTag would produce
+        # a duplicate record for the same logical element.
+        if token_type != "EndTag":
+            namespace = token.get("namespace")
+            self._log_removal("disallowed_element", token["name"],
+                              namespace=prefixes.get(namespace) if namespace else None,
+                              escaped_to_text=True)
         if token_type == "EndTag":
             token["data"] = "</%s>" % token["name"]
         elif token["data"]:
@@ -895,19 +1142,42 @@ class Filter(base.Filter):
         return token
 
     def sanitize_css(self, style):
+        """Sanitize an inline style value.
+
+        Returns a ``(clean_style, dropped_declarations)`` tuple where the
+        second element lists the raw declarations that were rejected, for the
+        audit log. The joined clean output is byte-for-byte identical to the
+        historical single-string return value.
+        """
+        dropped = []
+
+        def drop(declaration):
+            text = declaration.strip()
+            if text:
+                dropped.append(text)
+
         # disallow urls
-        style = re.compile(r'url\s*\(\s*[^\s)]+?\s*\)\s*').sub(' ', style)
+        url_style = re.compile(r'url\s*\(\s*[^\s)]+?\s*\)\s*').sub(' ', style)
+        if url_style != style:
+            for match in re.compile(r'url\s*\(\s*[^\s)]+?\s*\)\s*').findall(style):
+                drop(match)
+        style = url_style
 
         # gauntlet
         if not re.match(r"""^([:,;#%.\sa-zA-Z0-9!]|\w-\w|'[\s\w]+'|"[\s\w]+"|\([\d,\s]+\))*$""", style):
-            return ''
+            for declaration in style.split(';'):
+                drop(declaration)
+            return '', dropped
         if not re.match(r"^\s*([-\w]+\s*:[^:;]*(;\s*|$))*$", style):
-            return ''
+            for declaration in style.split(';'):
+                drop(declaration)
+            return '', dropped
 
         clean = []
         for prop, value in re.findall(r"([-\w]+)\s*:\s*([^:;]*)", style):
             if not value:
                 continue
+            declaration = '%s: %s' % (prop, value)
             if prop.lower() in self.allowed_css_properties:
                 clean.append(prop + ': ' + value + ';')
             elif prop.split('-')[0].lower() in ['background', 'border', 'margin',
@@ -915,10 +1185,13 @@ class Filter(base.Filter):
                 for keyword in value.split():
                     if keyword not in self.allowed_css_keywords and \
                             not re.match(r"^(#[0-9a-fA-F]+|rgb\(\d+%?,\d*%?,?\d*%?\)?|\d{0,2}\.?\d{0,2}(cm|em|ex|in|mm|pc|pt|px|%|,|\))?)$", keyword):  # noqa
+                        drop(declaration)
                         break
                 else:
                     clean.append(prop + ': ' + value + ';')
             elif prop.lower() in self.allowed_svg_properties:
                 clean.append(prop + ': ' + value + ';')
+            else:
+                drop(declaration)
 
-        return ' '.join(clean)
+        return ' '.join(clean), dropped
