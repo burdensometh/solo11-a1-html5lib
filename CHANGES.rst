@@ -15,6 +15,18 @@ Features:
   you, Tom Most!) (#396)
 * The ``<ol reversed>`` and ``<ol start>`` attributes are now permitted by the
   sanitizer. (#321) (Thank you, Tom Most!)
+* Add a ``preserve_entities`` serializer option that keeps character
+  references (such as ``&amp;`` or ``&#x2014;``) already present in text
+  nodes and attribute values instead of escaping their ampersand a second
+  time. Lone ampersands that do not start a valid reference are still
+  escaped.
+* The ``use_trailing_solidus`` serializer option now also collapses empty
+  foreign-content elements (SVG/MathML) whose start tag is immediately
+  followed by their end tag into a single self-closing tag, e.g.
+  ``<path/>`` instead of ``<path></path>``. HTML elements keep their
+  explicit end tag, as a trailing solidus does not close them.
+* The DOM treewalker now stores attributes in an ``OrderedDict`` so their
+  document order is preserved on every supported Python version.
 
 Bug fixes:
 

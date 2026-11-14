@@ -1,14 +1,13 @@
 from __future__ import absolute_import, division, unicode_literals
-from six import text_type
+from six import text_type, PY3
 
 import re
 
 from codecs import register_error, xmlcharrefreplace_errors
 
 from .constants import voidElements, booleanAttributes, spaceCharacters
-from .constants import rcdataElements, entities, xmlEntities
+from .constants import rcdataElements, entities, xmlEntities, namespaces
 from . import treewalkers, _utils
-from xml.sax.saxutils import escape
 
 _quoteAttributeSpecChars = "".join(spaceCharacters) + "\"'=<>`"
 _quoteAttributeSpec = re.compile("[" + _quoteAttributeSpecChars + "]")
@@ -20,6 +19,88 @@ _quoteAttributeLegacy = re.compile("[" + _quoteAttributeSpecChars +
                                    "\u2001\u2002\u2003\u2004\u2005\u2006\u2007"
                                    "\u2008\u2009\u200a\u2028\u2029\u202f\u205f"
                                    "\u3000]")
+
+# Matches an ampersand that does not begin a syntactically valid character
+# reference (a named reference such as "&amp;", a hexadecimal numeric
+# reference such as "&#x2014;" or a decimal one such as "&#8212;"). When
+# ``preserve_entities`` is enabled only these lone ampersands are escaped,
+# leaving already escaped references untouched instead of turning "&amp;"
+# into "&amp;amp;".
+_loneAmpersand = re.compile(r"&(?!#(?:[xX][0-9a-fA-F]+|[0-9]+);|[a-zA-Z][a-zA-Z0-9]+;)")
+
+
+def _escape_lone_ampersands(data):
+    """Escape ampersands that do not begin a valid character reference."""
+    return _loneAmpersand.sub("&amp;", data)
+
+
+def escape_text(data, preserve_entities=False):
+    """Escape text node data for serialization.
+
+    :arg data: the unescaped text
+
+    :arg preserve_entities: when ``True``, ampersands that already start a
+        valid character reference are left as-is so already-escaped markup is
+        not escaped a second time; lone ampersands are still escaped.
+
+    """
+    if preserve_entities:
+        data = _escape_lone_ampersands(data)
+    else:
+        data = data.replace("&", "&amp;")
+    return data.replace("<", "&lt;").replace(">", "&gt;")
+
+
+def escape_attribute(data, preserve_entities=False, escape_lt=False):
+    """Escape an attribute value for serialization.
+
+    :arg data: the unescaped attribute value
+
+    :arg preserve_entities: when ``True``, valid character references already
+        present in the value are preserved instead of being re-escaped.
+
+    :arg escape_lt: when ``True``, also escape ``<`` characters.
+
+    """
+    if preserve_entities:
+        data = _escape_lone_ampersands(data)
+    else:
+        data = data.replace("&", "&amp;")
+    if escape_lt:
+        data = data.replace("<", "&lt;")
+    return data
+
+
+class _PeekableIterator(object):
+    """Iterator wrapper allowing the next item to be inspected without
+    consuming it."""
+
+    def __init__(self, iterable):
+        self._iterator = iter(iterable)
+        self._peeked = None
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._peeked is not None:
+            value = self._peeked[0]
+            self._peeked = None
+            return value
+        return next(self._iterator)
+
+    # Python 2 calls next() rather than __next__() during iteration.
+    if not PY3:  # pragma: no cover
+        next = __next__
+
+    def peek(self):
+        """Return the next item without consuming it, or ``None`` at EOF."""
+        if self._peeked is None:
+            try:
+                self._peeked = (next(self._iterator),)
+            except StopIteration:
+                return None
+        return self._peeked[0]
 
 
 _encode_entity_map = {}
@@ -118,6 +199,7 @@ class HTMLSerializer(object):
     escape_lt_in_attrs = False
     escape_rcdata = False
     resolve_entities = True
+    preserve_entities = False
 
     # miscellaneous options
     alphabetical_attributes = False
@@ -129,6 +211,7 @@ class HTMLSerializer(object):
                "omit_optional_tags", "minimize_boolean_attributes",
                "use_trailing_solidus", "space_before_trailing_solidus",
                "escape_lt_in_attrs", "escape_rcdata", "resolve_entities",
+               "preserve_entities",
                "alphabetical_attributes", "inject_meta_charset",
                "strip_whitespace", "sanitize")
 
@@ -168,6 +251,17 @@ class HTMLSerializer(object):
 
             Defaults to ``True``.
 
+        :arg preserve_entities: Whether or not to keep character references
+            (such as ``&amp;``, ``&lt;`` or ``&#x2014;``) that are already
+            present in the text nodes and attribute values of the source tree
+            instead of escaping their ampersand a second time. Lone
+            ampersands that do not start a valid character reference are still
+            escaped. Enable this when re-serializing markup whose text has
+            already been entity-escaped, e.g. content produced by another
+            serializer, to avoid turning ``&amp;`` into ``&amp;amp;``.
+
+            Defaults to ``False``.
+
         :arg strip_whitespace: Whether to remove semantically meaningless
             whitespace. (This compresses all whitespace to a single space
             except within ``pre``.)
@@ -187,7 +281,10 @@ class HTMLSerializer(object):
 
         :arg use_trailing_solidus: Includes a close-tag slash at the end of the
             start tag of void elements (empty elements whose end tag is
-            forbidden). E.g. ``<hr/>``.
+            forbidden). E.g. ``<hr/>``. Empty foreign-content elements (those
+            in SVG or MathML) whose StartTag is immediately followed by their
+            EndTag are serialized as a single self-closing tag as well, e.g.
+            ``<path/>`` instead of ``<path></path>``.
 
             Defaults to ``False``.
 
@@ -262,6 +359,7 @@ class HTMLSerializer(object):
             from .filters.optionaltags import Filter
             treewalker = Filter(treewalker)
 
+        treewalker = _PeekableIterator(treewalker)
         for token in treewalker:
             type = token["type"]
             if type == "Doctype":
@@ -289,7 +387,8 @@ class HTMLSerializer(object):
                         self.serializeError("Unexpected </ in CDATA")
                     yield self.encode(token["data"])
                 else:
-                    yield self.encode(escape(token["data"]))
+                    yield self.encode(escape_text(token["data"],
+                                                  self.preserve_entities))
 
             elif type in ("StartTag", "EmptyTag"):
                 name = token["name"]
@@ -318,9 +417,8 @@ class HTMLSerializer(object):
                         else:
                             raise ValueError("quote_attr_values must be one of: "
                                              "'always', 'spec', or 'legacy'")
-                        v = v.replace("&", "&amp;")
-                        if self.escape_lt_in_attrs:
-                            v = v.replace("<", "&lt;")
+                        v = escape_attribute(v, self.preserve_entities,
+                                             self.escape_lt_in_attrs)
                         if quote_attr:
                             quote_char = self.quote_char
                             if self.use_best_quote_char:
@@ -337,11 +435,17 @@ class HTMLSerializer(object):
                             yield self.encodeStrict(quote_char)
                         else:
                             yield self.encode(v)
-                if name in voidElements and self.use_trailing_solidus:
+                if self.use_trailing_solidus and (
+                        name in voidElements or
+                        token["type"] == "EmptyTag" or
+                        self._isEmptyForeignElement(token, treewalker)):
                     if self.space_before_trailing_solidus:
                         yield self.encodeStrict(" /")
                     else:
                         yield self.encodeStrict("/")
+                    # The matching EndTag of an empty foreign element was
+                    # consumed by _isEmptyForeignElement; void elements have
+                    # no EndTag at all.
                 yield self.encode(">")
 
             elif type == "EndTag":
@@ -402,6 +506,28 @@ class HTMLSerializer(object):
         self.errors.append(data)
         if self.strict:
             raise SerializeError
+
+    def _isEmptyForeignElement(self, token, treewalker):
+        """Return ``True`` if ``token`` is the StartTag of an empty
+        foreign-content (SVG/MathML, etc.) element, consuming its matching
+        EndTag from the stream when it is.
+
+        HTML elements are never collapsed: in HTML an empty ``<div />`` is
+        just an open ``<div>``, so its end tag must be emitted normally.
+        """
+        if token["type"] != "StartTag":
+            return False
+        namespace = token.get("namespace")
+        if not namespace or namespace == namespaces["html"]:
+            return False
+        next_token = treewalker.peek()
+        if (next_token is not None and
+                next_token["type"] == "EndTag" and
+                next_token.get("namespace") == namespace and
+                next_token["name"] == token["name"]):
+            next(treewalker)
+            return True
+        return False
 
 
 class SerializeError(Exception):

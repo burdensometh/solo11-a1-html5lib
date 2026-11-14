@@ -368,25 +368,25 @@
   {
     "name": "uri_refs_in_svg_attributes",
     "input": "<svg><rect fill='url(#foo)' />",
-    "output": "<svg><rect fill='url(#foo)'></rect></svg>"
+    "output": "<svg><rect fill='url(#foo)'/></svg>"
   },
 
   {
     "name": "absolute_uri_refs_in_svg_attributes",
     "input": "<svg><rect fill='url(http://bad.com/) #fff' />",
-    "output": "<svg><rect fill='  #fff'></rect></svg>"
+    "output": "<svg><rect fill='  #fff'/></svg>"
   },
 
   {
     "name": "uri_ref_with_space_in svg_attribute",
     "input": "<svg><rect fill='url(\n#foo)' />",
-    "output": "<svg><rect fill='url(\n#foo)'></rect></svg>"
+    "output": "<svg><rect fill='url(\n#foo)'/></svg>"
   },
 
   {
     "name": "absolute_uri_ref_with_space_in svg_attribute",
     "input": "<svg><rect fill=\"url(\nhttp://bad.com/)\" />",
-    "output": "<svg><rect fill=' '></rect></svg>"
+    "output": "<svg><rect fill=' '/></svg>"
   },
 
   {

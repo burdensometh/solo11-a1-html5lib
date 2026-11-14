@@ -1,5 +1,7 @@
 from __future__ import absolute_import, division, unicode_literals
 
+from collections import OrderedDict
+
 from xml.dom import Node
 
 from . import base
@@ -14,7 +16,9 @@ class TreeWalker(base.NonRecursiveTreeWalker):
             return base.TEXT, node.nodeValue
 
         elif node.nodeType == Node.ELEMENT_NODE:
-            attrs = {}
+            # Use an OrderedDict so attributes are emitted in document order
+            # rather than relying on plain dict ordering.
+            attrs = OrderedDict()
             for attr in list(node.attributes.keys()):
                 attr = node.getAttributeNode(attr)
                 if attr.namespaceURI:
